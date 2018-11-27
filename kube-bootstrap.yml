@@ -8,6 +8,9 @@
     kube_pod_network_cidr: 10.244.0.0/16 # Canal/Flannel requires this subnet
     master_hostname: "{{ kube_prefix }}0-master"
     master_ansible_hostname: "{{ kube_prefix }}0"
+    kubernetes_version: 1.11.1-0
+    docker_version: 18.06.1.ce-3.el7
+    dockerpy_version: 1.10.6
     dashboard_version: 1.8.3
     kube_router_version: 0.1.0
     nfs_hostname: "{{ kube_prefix }}nfs"
@@ -67,6 +70,13 @@
         fstype: swap
         state: absent
 
+    - name: Ensure /swapfile not in fstab
+      lineinfile:
+        path: /etc/fstab
+        line: '/swapfile none swap'
+        regexp: '^/swapfile none swap'
+        state: absent
+
     - name: Ensure swap is disabled
       command: swapoff -a
       when: ansible_swaptotal_mb > 0
@@ -119,10 +129,10 @@
       with_items:
         - python-pip
         - dnsmasq
-        - docker-ce
-        - kubectl
-        - kubelet
-        - kubeadm
+        - docker-ce-{{ docker_version }}
+        - kubectl-{{ kubernetes_version }}
+        - kubelet-{{ kubernetes_version }}
+        - kubeadm-{{ kubernetes_version }}
         - lvm2
         - device-mapper-libs
         - device-mapper-event-libs
@@ -134,7 +144,7 @@
         name: "{{ item }}"
         state: present
       with_items:
-        - docker-py
+        - docker-py=={{ dockerpy_version }}
 
     - name: Ensure services are started
       service:
