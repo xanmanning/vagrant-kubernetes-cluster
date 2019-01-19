@@ -234,7 +234,7 @@
         dest: /pv.yml
       when: master_node == true
 
-    - name: Ensure persisten volume definitions are installed
+    - name: Ensure persistent volume definitions are installed
       shell: "/usr/bin/kubectl apply -f /pv.yml > /pv_setup"
       args:
         creates: /pv_setup
