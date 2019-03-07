@@ -15,6 +15,19 @@
     kube_router_version: 0.1.0
     nfs_hostname: "{{ kube_prefix }}nfs"
     storage_id: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  handlers:
+    - name: Reboot system to ensure SELinux disabled
+      shell: sleep 10 && /sbin/shutdown -r now
+      async: 300
+      poll: 0
+      ignore_errors: true
+      listen: reboot server
+
+    - name: Wait for system to become reachable again
+      wait_for_connection:
+        delay: 60
+        timeout: 300
+      listen: reboot server
   tasks:
     - name: Ensure master IP address fact is defined
       set_fact:
@@ -28,19 +41,19 @@
     - name: Ensure hostname of master is correct
       hostname:
         name: "{{ ansible_hostname }}-master"
-      when: master_node == true and ansible_hostname[-7:] != "-master"
+      when: master_node and ansible_hostname[-7:] != "-master"
 
     - name: Ensure hostname of workers is correct
       hostname:
         name: "{{ ansible_hostname }}-worker"
-      when: master_node == false and ansible_hostname[-7:] != "-worker"
+      when: not master_node and ansible_hostname[-7:] != "-worker"
 
     - name: Ensure hostnames are in /etc/hosts
       lineinfile:
         line: "{{ item }}"
         path: /etc/hosts
         state: present
-      with_items:
+      loop:
         - "{{ master_addr }} {{ master_hostname }} {{ master_ansible_hostname }}"
         - "{{ node_subnet }}.3 {{ kube_prefix }}1 {{ kube_prefix }}1-worker"
         - "{{ node_subnet }}.4 {{ kube_prefix }}2 {{ kube_prefix }}2-worker"
@@ -85,19 +98,10 @@
       selinux:
         state: disabled
       register: selinux_task
+      notify:
+        - reboot server
 
-    - name: Reboot system to ensure SELinux disabled
-      shell: sleep 10 && /sbin/shutdown -r now
-      async: 300
-      poll: 0
-      ignore_errors: true
-      when: selinux_task.changed == true
-
-    - name: Wait for system to become reachable again
-      wait_for_connection:
-        delay: 60
-        timeout: 300
-      when: selinux_task.changed == true
+    - meta: flush_handlers
 
     - name: Ensure epel-release installed
       yum:
@@ -126,7 +130,7 @@
         name: "{{ item }}"
         state: present
         update_cache: true
-      with_items:
+      loop:
         - python-pip
         - dnsmasq
         - docker-ce-{{ docker_version }}
@@ -143,7 +147,7 @@
       pip:
         name: "{{ item }}"
         state: present
-      with_items:
+      loop:
         - docker-py=={{ dockerpy_version }}
 
     - name: Ensure services are started
@@ -151,7 +155,7 @@
         name: "{{ item }}"
         state: started
         enabled: true
-      with_items:
+      loop:
         - dnsmasq
         - docker
         - kubelet
@@ -168,84 +172,84 @@
       shell: "/usr/bin/kubeadm init --apiserver-advertise-address={{ master_addr }} --pod-network-cidr={{ kube_pod_network_cidr }} > /cluster_init"
       args:
         creates: /cluster_init
-      when: master_node == true
+      when: master_node
 
     - name: Discover join command
-      shell: "/usr/bin/kubeadm token create --print-join-command"
+      command: "/usr/bin/kubeadm token create --print-join-command"
       register: join_command_raw
       changed_when: false
-      when: master_node == true
+      when: master_node
 
     - name: Ensure join command fact set
       set_fact:
         join_command: "{{ join_command_raw.stdout_lines[0] }}"
-      when: master_node == true
+      when: master_node
 
     - name: Ensure workers join the cluster
       shell: "{{ hostvars[master_ansible_hostname].join_command }} > /node_joined"
       args:
         creates: /node_joined
-      when: master_node == false and hostvars[master_ansible_hostname].join_command is defined
+      when: not master_node and hostvars[master_ansible_hostname].join_command is defined
 
     - name: Ensure user has a kube directory
       file:
         path: "{{ ansible_env.HOME }}/.kube"
         state: directory
         mode: 0755
-      when: master_node == true
+      when: master_node
 
     - name: Ensure user kube config is set
       copy:
         src: /etc/kubernetes/admin.conf
         dest: "{{ ansible_env.HOME }}/.kube/config"
         remote_src: true
-      when: master_node == true
+      when: master_node
 
     - name: Ensure Pod network is installed (kube-router)
       shell: "/usr/bin/kubectl apply -f https://raw.githubusercontent.com/cloudnativelabs/kube-router/v{{ kube_router_version }}/daemonset/kubeadm-kuberouter-all-features.yaml > /pod_network_setup"
       args:
         creates: /pod_network_setup
-      when: master_node == true
+      when: master_node
 
     - name: Wait for all nodes to be ready
-      shell: "/usr/bin/kubectl get nodes"
+      command: "/usr/bin/kubectl get nodes"
       changed_when: false
       register: result
       until: result.stdout.find("NotReady") == -1
       retries: 30
       delay: 20
-      when: master_node == true
+      when: master_node
 
     - name: Ensure master node is untainted
       shell: "/usr/bin/kubectl taint nodes {{ master_hostname }} node-role.kubernetes.io/master- > /untaint_master"
       args:
         creates: /untaint_master
-      when: master_node == true
+      when: master_node
 
     - name: Ensure Kubernetes dashboard is installed
       shell: "/usr/bin/kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v{{ dashboard_version }}/src/deploy/recommended/kubernetes-dashboard.yaml > /kube_dashboard"
       args:
         creates: /kube_dashboard
-      when: master_node == true
+      when: master_node
 
     - name: Ensure persistent volume definition exists
       template:
         src: pv.yml.j2
         dest: /pv.yml
-      when: master_node == true
+      when: master_node
 
     - name: Ensure persistent volume definitions are installed
       shell: "/usr/bin/kubectl apply -f /pv.yml > /pv_setup"
       args:
         creates: /pv_setup
-      when: master_node == true
+      when: master_node
 
     - name: Download a copy of the admin config
       fetch:
         src: /etc/kubernetes/admin.conf
         dest: config
         flat: true
-      when: master_node == true
+      when: master_node
 
     - name: Closing message
       delegate_to: localhost
