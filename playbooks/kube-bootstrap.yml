@@ -1,0 +1,76 @@
+---
+
+- name: Bootstrap Kubernetes nodes
+  become: true
+  hosts: all
+  vars:
+    k3s_use_docker: true
+    k3s_flannel_interface: eth1
+    k3s_release_version: v0.10.2
+    kube_prefix: kube-
+    nfs_hostname: "{{ kube_prefix }}nfs"
+    storage_id: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  roles:
+    - xanmanning.k3s
+  tasks:
+    - name: Ensure NFS IP address fact is defined
+      set_fact:
+        node_subnet: "{{ ansible_eth1.ipv4.address.split('.')[:-1] | join('.') }}"
+
+    - name: Ensure NFS hostnme is in /etchosts
+      lineinfile:
+        line: "{{ node_subnet }}.254 {{ nfs_hostname }}"
+        path: /etc/hosts
+        state: present
+
+    - name: Ensure persistent volume definition exists
+      template:
+        src: ../templates/pv.yml.j2
+        dest: /pv.yml
+      when: k3s_control_node
+
+    - name: Ensure persistent volume definitions are installed
+      shell: "/usr/local/bin/kubectl apply -f /pv.yml > /pv_setup"
+      args:
+        creates: /pv_setup
+      when: k3s_control_node
+
+    - name: Download a copy of the admin config
+      fetch:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: ../config
+        flat: true
+      when: k3s_control_node
+
+    - name: Ensure config contains the control plane IP
+      delegate_to: localhost
+      become: false
+      lineinfile:
+        path: ../config
+        line: "    server: https://{{ hostvars[item].ansible_host }}:6443"
+        regexp: "^    server: https:"
+      when: hostvars[item].k3s_control_node is defined
+            and hostvars[item].k3s_control_node
+      loop: "{{ play_hosts }}"
+
+    - name: Closing message
+      delegate_to: localhost
+      run_once: true
+      debug:
+        msg:
+         - "+----------------------------------------------------------------+"
+         - "|                          NOTICE                                |"
+         - "+----------------------------------------------------------------+"
+         - "| Kubernetes cluster is now running. You can administer the      |"
+         - "| cluster by copying the `config` file in this directory to your |"
+         - "| `${HOME}/.kube/` directory. To do this, run the following:     |"
+         - "|                                                                |"
+         - "|    cp ./config ~/.kube/config                                  |"
+         - "|                                                                |"
+         - "| Test the configuration with the following commands:            |"
+         - "|                                                                |"
+         - "|    kubectl cluster-info                                        |"
+         - "|    kubectl get nodes                                           |"
+         - "|                                                                |"
+         - "| Enjoy!                                                         |"
+         - "+----------------------------------------------------------------+"

@@ -97,7 +97,7 @@
       lineinfile:
         line: "/kube/store{{ item[0] }} {{ node_subnet }}.{{ item[1] }}({{ nfs_opts }})"
         path: /etc/exports
-      with_nested: 
+      with_nested:
         - "{{ storage_id }}"
         - [2, 3, 4, 5, 6, 7, 8, 9]
       notify:

@@ -30,7 +30,7 @@ Vagrant.configure("2") do |config|
         end
 
         s.vm.provision "ansible" do |a|
-            a.playbook = "nfs-bootstrap.yml"
+            a.playbook = "playbooks/nfs-bootstrap.yml"
         end
     end
     # Iterate for nodes
@@ -51,7 +51,8 @@ Vagrant.configure("2") do |config|
             if node_id == N
                 n.vm.provision "ansible" do |a|
                     a.limit = "!#{PREFIX}nfs"
-                    a.playbook = "kube-bootstrap.yml"
+                    a.inventory_path = "inventory.yml"
+                    a.playbook = "playbooks/kube-bootstrap.yml"
                 end
             end
         end
