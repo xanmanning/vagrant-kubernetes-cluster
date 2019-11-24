@@ -1,0 +1,21 @@
+{
+  "CN": "server.dc1.cluster.local",
+  "hosts": [
+    "server.dc1.cluster.local",
+    "127.0.0.1"
+  ],
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "GB",
+      "L": "Derby",
+      "O": "Pyrat Ltd",
+      "OU": "Consul",
+      "ST": "England"
+    }
+  ]
+}
+
