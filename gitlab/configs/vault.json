@@ -11,7 +11,7 @@
     "consul": {
       "address": "consul:8500",
       "path": "vault/",
-      "disable_registration": "true",
+      "disable_registration": "false",
       "ha_enabled": "true"
     }
   },
