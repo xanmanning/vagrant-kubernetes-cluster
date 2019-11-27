@@ -49,7 +49,7 @@ spec:
             - "agent"
             - "-advertise=$(POD_IP)"
             - "-bootstrap-expect=3"
-            - "-config-file=/etc/consul/config/server.json"
+            - "-config-file=/etc/consul/config/consul.json"
             - "-encrypt=$(GOSSIP_ENCRYPTION_KEY)"
           volumeMounts:
             - name: data
@@ -97,6 +97,8 @@ spec:
       spec:
         accessModes:
           - ReadWriteOnce
+        volumeMode: Filesystem
+        storageClassName: slow
         resources:
           requests:
             storage: 10Gi

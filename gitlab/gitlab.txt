@@ -16,6 +16,13 @@ cfssl gencert \
   -profile=default \
   ca/consul-csr.json | cfssljson -bare consul
 
+cfssl gencert \
+  -ca=ca.pem \
+  -ca-key=ca-key.pem \
+  -config=ca/ca-config.json \
+  -profile=default \
+  ca/vault-csr.json | cfssljson -bare vault 
+
 GOSSIP_ENCRYPTION_KEY=$(consul keygen)
 
 kubectl create secret generic consul \
@@ -24,12 +31,21 @@ kubectl create secret generic consul \
   --from-file=consul.pem \
   --from-file=consul-key.pem
 
-kubectl create configmap consul --from-file=configs/server.json
+kubectl create configmap consul --from-file=configs/consul.json
 
 kubectl create -f services/consul.yaml
 
-kubectl apply -f serviceaccounts/consul.yaml
+kubectl create -f serviceaccounts/consul.yaml
 
-kubectl apply -f clusterroles/consul.yaml
+kubectl create -f clusterroles/consul.yaml
 
 kubectl create -f statefulsets/consul.yaml
+
+kubectl create secret generic vault \
+    --from-file=ca.pem \
+    --from-file=vault.pem \
+    --from-file=vault-key.pem
+
+kubectl create configmap vault --from-file=configs/vault.json
+kubectl create -f services/vault.yaml
+kubectl create -f deployments/vault.yaml
