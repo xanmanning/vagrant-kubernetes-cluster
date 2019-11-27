@@ -48,4 +48,6 @@ kubectl create secret generic vault \
 
 kubectl create configmap vault --from-file=configs/vault.json
 kubectl create -f services/vault.yaml
-kubectl create -f deployments/vault.yaml
+kubectl create -f serviceaccounts/vault.yaml
+kubectl create -f statefulsets/vault.yaml
+#kubectl create -f deployments/vault.yaml

@@ -1,19 +1,35 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: vault
   labels:
     app: vault
 spec:
-  replicas: 3
   selector:
     matchLabels:
       app: vault
+  serviceName: vault
+  podManagementPolicy: "Parallel"
+  replicas: 3
   template:
     metadata:
       labels:
         app: vault
     spec:
+      serviceAccountName: vault
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - vault
+              topologyKey: kubernetes.io/hostname
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        fsGroup: 1000
       containers:
       - name: vault
         command: ["vault", "server", "-config", "/etc/vault/config/vault.json"]
@@ -50,13 +66,18 @@ spec:
           - "-config-file=/etc/consul/config/consul.json"
           - "-domain=cluster.local"
           - "-datacenter=dc1"
-          - "-disable-host-node-id"
-          - "-node=vault"
         volumeMounts:
             - name: config
               mountPath: /etc/consul/config
             - name: tls
               mountPath: /etc/tls
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - /bin/sh
+              - -c
+              - consul leave
       volumes:
         - name: configurations
           configMap:
