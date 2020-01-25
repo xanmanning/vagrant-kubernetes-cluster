@@ -1,0 +1,179 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: wekandb-view
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: wekandb-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: ServiceAccount
+    name: wekandb-view
+    namespace: default
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: wekandb
+  labels:
+    app: wekandb
+spec:
+  serviceName: wekandb
+  replicas: 3
+  selector:
+    matchLabels:
+      app: wekandb
+  template:
+    metadata:
+      labels:
+        app: wekandb
+    spec:
+      serviceAccountName: wekandb-view
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+      containers:
+        - name: wekandb
+          image: mongo:4.0
+          env:
+            - name: MONGO_INITDB_DATABASE
+              value: wekan
+          command:
+            - mongod
+            - "--replSet"
+            - rs0
+            - "--smallfiles"
+            - "--noprealloc"
+            - "--bind_ip_all"
+          resources:
+            limits: { memory: "200Mi", cpu: "100m" }
+          ports:
+            - containerPort: 27017
+          volumeMounts:
+            - name: wekandb-data-pvc
+              mountPath: /data/db
+          readinessProbe:
+            exec:
+              command:
+              - mongo
+              - --eval
+              - "db.adminCommand('ping')"
+            timeoutSeconds: 5
+        - name: mongo-sidecar
+          image: cvallance/mongo-k8s-sidecar
+          env:
+            - name: MONGO_SIDECAR_POD_LABELS
+              value: "app=wekandb"
+  volumeClaimTemplates:
+  - metadata:
+      name: wekandb-data-pvc
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      storageClassName: "openebs-jiva-default"
+      resources:
+        requests:
+          storage: 2Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: wekan
+  labels:
+    app: wekan
+spec:
+  serviceName: wekan
+  replicas: 3
+  selector:
+    matchLabels:
+      app: wekan
+  template:
+    metadata:
+      labels:
+        app: wekan
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+      containers:
+        - name: wekan
+          image: quay.io/wekan/wekan:latest
+          env:
+            - name: MONGO_URL
+              value: mongodb://wekandb-0.wekandb,wekandb-1.wekandb,wekandb-2.wekandb:27017/wekan?replicaSet=rs0
+            - name: ROOT_URL
+              value: http://wekan.kubed
+            - name: PORT
+              value: "3000"
+          resources:
+            requests: { memory: "400Mi", cpu: "200m" }
+            limits: { memory: "400Mi", cpu: "200m" }
+          ports:
+            - containerPort: 3000
+          volumeMounts:
+          - name: wekan-uploads-pvc
+            mountPath: /app/uploads
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 10
+            timeoutSeconds: 5
+            periodSeconds: 15
+  volumeClaimTemplates:
+  - metadata:
+      name: wekan-uploads-pvc
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      storageClassName: "openebs-jiva-default"
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wekan-svc
+spec:
+  # type: LoadBalancer
+  ports:
+    - protocol: TCP
+      port: 3000
+      targetPort: 3000
+  selector:
+    app: wekan
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wekandb
+spec:
+  selector:
+    app: wekandb
+  clusterIP: None
+  ports:
+    - port: 27017
+      targetPort: 27017
+---
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: wekan-ingress
+  annotations:
+    kubernetes.io/ingress.class: "traefik"
+spec:
+  rules:
+  - host: wekan.kubed
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: wekan-svc
+          servicePort: 3000
