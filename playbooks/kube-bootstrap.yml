@@ -4,36 +4,162 @@
   become: true
   hosts: all
   vars:
-    k3s_use_docker: true
-    k3s_flannel_interface: eth1
-    k3s_release_version: v0.10.2
-    kube_prefix: kube-
-    nfs_hostname: "{{ kube_prefix }}nfs"
-    storage_id: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-  roles:
-    - xanmanning.k3s
-  tasks:
-    - name: Ensure NFS IP address fact is defined
-      set_fact:
-        node_subnet: "{{ ansible_eth1.ipv4.address.split('.')[:-1] | join('.') }}"
-
-    - name: Ensure NFS hostnme is in /etchosts
-      lineinfile:
-        line: "{{ node_subnet }}.254 {{ nfs_hostname }}"
-        path: /etc/hosts
+    raid_level: 10
+    raid_device: /dev/md127
+    block_devices: []
+    filesystem_type: ext4
+    ansible_interface: "ansible_{{ k3s_flannel_interface }}"
+  pre_tasks:
+    - name: Ensure chronyd is installed
+      package:
+        name: chrony
         state: present
 
-    - name: Ensure persistent volume definition exists
-      template:
-        src: ../templates/pv.yml.j2
-        dest: /pv.yml
-      when: k3s_control_node
+    - name: Ensure chronyd in started
+      service:
+        name: chronyd
+        state: started
+        enabled: true
 
-    - name: Ensure persistent volume definitions are installed
-      shell: "/usr/local/bin/kubectl apply -f /pv.yml > /pv_setup"
+    - name: Ensure software RAID and iSCSI applications are installed
+      package:
+        name:
+          - mdadm
+          - lvm2
+          - open-iscsi
+          - libiscsi-utils
+        state: present
+
+    - name: Ensure the first node is configured as the Primary master
+      set_fact:
+        # k3s_control_node: "{{ inventory_hostname }}"
+        k3s_primary_control_node: "{{ inventory_hostname }}"
+      when: inventory_hostname == play_hosts[0]
+
+    - name: Ensure the correct k3s_control_node_address is specified
+      set_fact:
+        k3s_control_node_address: "{{ hostvars[item][ansible_interface].ipv4.address }}"
+      loop: "{{ play_hosts }}"
+      # when: hostvars[item].k3s_control_node is defined
+      #       and hostvars[item].k3s_control_node
+      when: hostvars[item].k3s_primary_control_node is defined
+            and hostvars[item].k3s_primary_control_node
+
+    - name: Check for RAID device
+      stat:
+        path: "{{ raid_device }}"
+      register: check_raid_device
+
+    - name: Provision RAID array
+      block:
+        - name: Ensure a list of block devices exists
+          set_fact:
+            block_devices: "{{ block_devices + [ '/dev/' + item.key ] }}"
+          loop: "{{ lookup('dict', ansible_devices) }}"
+          when: item.value.partitions | length < 1
+                and item.key.find('loop') == -1
+
+        - name: Ensure a string of block devices exists
+          set_fact:
+            block_devices_string: "{{ block_devices | join(' ') }}"
+
+        - name: Ensure a count of block devices is created
+          set_fact:
+            block_device_count: "{{ block_devices | length }}"
+
+        - name: Ensure a RAID array exists
+          command: >
+            /sbin/mdadm --create
+              --verbose {{ raid_device }}
+              --level={{ raid_level }}
+              --raid-devices={{ block_device_count }} {{ block_devices_string }}
+          args:
+            creates: "{{ raid_device }}"
+
+        - name: Ensure a partition exists on the RAID array
+          parted:
+            device: "{{ raid_device }}"
+            label: gpt
+            flags: [ lvm ]
+            number: 1
+            state: present
+
+        - name: Ensure the RAID array is added to an LVM volume group
+          lvg:
+            vg: vg_pvstore
+            pvs: "{{ raid_device }}p1"
+
+        - name: Ensure a Logical Volume exists
+          lvol:
+            vg: vg_pvstore
+            lv: lv_pvdata
+            size: +80%FREE
+
+        - name: Ensure a filesystem is on the logical volume
+          filesystem:
+            dev: /dev/mapper/vg_pvstore-lv_pvdata
+            fstype: "{{ filesystem_type }}"
+            resizefs: true
+
+      when: not check_raid_device.stat.exists
+
+    - name: Ensure mountpoint exists
+      file:
+        path: /var/openebs
+        state: directory
+
+    - name: Ensure volume is mounted
+      mount:
+        src: /dev/mapper/vg_pvstore-lv_pvdata
+        path: /var/openebs
+        fstype: "{{ filesystem_type }}"
+        state: mounted
+
+    - name: Ensure iscsid is started
+      service:
+        name: iscsid
+        state: started
+        enabled: true
+
+    - name: Wait for VM resources to settle
+      pause:
+        seconds: 20
+
+  roles:
+    - xanmanning.k3s
+
+  tasks:
+    - name: Ensure deployment directory exists
+      file:
+        path: /etc/kubernetes/deployment
+        state: directory
+
+    - name: Ensure yaml files are present in deployment directory
+      template:
+        dest: "/etc/kubernetes/deployment/{{ item }}"
+        src: "{{ playbook_dir }}/../templates/{{ item }}.j2"
+      when: inventory_hostname == play_hosts[0]
+      loop:
+        # MetalLB
+        - 00-metallb.yaml
+        - 05-metallb-arp-config.yaml
+        # OpenEBS
+        - 10-openebs-operator.yaml
+
+    - name: Ensure yaml files have been deployed to k3s
+      shell: >
+        set -o pipefail && \
+          /usr/local/bin/kubectl create \
+            -f /etc/kubernetes/deployment/{{ item }} | tee -a /tmp/deploy-{{ item }}
       args:
-        creates: /pv_setup
-      when: k3s_control_node
+        creates: "/tmp/deploy-{{ item }}"
+      when: inventory_hostname == play_hosts[0]
+      loop:
+        # MetalLB
+        - 00-metallb.yaml
+        - 05-metallb-arp-config.yaml
+        # OpenEBS
+        - 10-openebs-operator.yaml
 
     - name: Download a copy of the admin config
       fetch:
@@ -47,11 +173,8 @@
       become: false
       lineinfile:
         path: ../config
-        line: "    server: https://{{ hostvars[item].ansible_host }}:6443"
-        regexp: "^    server: https:"
-      when: hostvars[item].k3s_control_node is defined
-            and hostvars[item].k3s_control_node
-      loop: "{{ play_hosts }}"
+        line: "    server: https://{{ k3s_control_node_address }}:6443"
+        regexp: "^\\s+server: https:"
 
     - name: Closing message
       delegate_to: localhost
@@ -62,10 +185,10 @@
          - "|                          NOTICE                                |"
          - "+----------------------------------------------------------------+"
          - "| Kubernetes cluster is now running. You can administer the      |"
-         - "| cluster by copying the `config` file in this directory to your |"
-         - "| `${HOME}/.kube/` directory. To do this, run the following:     |"
+         - "| cluster by setting KUBECONFIG to point to the `config` file in |"
+         - "| this directory. To do this, run the following:                 |"
          - "|                                                                |"
-         - "|    cp ./config ~/.kube/config                                  |"
+         - "|    export KUBECONFIG=config                                    |"
          - "|                                                                |"
          - "| Test the configuration with the following commands:            |"
          - "|                                                                |"

@@ -2,3 +2,4 @@
 .vagrant
 config
 roles/xanmanning.k3s
+ubuntu-*.log
