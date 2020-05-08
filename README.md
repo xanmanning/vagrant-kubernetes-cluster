@@ -10,9 +10,9 @@ of my experiences learning how to Operate a Kubernetes Cluster.
 
 ### Why?
 
-Whilst learning to administrate Kubernetes with Minikube is a great starting
-point, I wanted to start learning how to provision and administrate a cluster,
-in particular a "bare-metal" cluster.
+Whilst learning to administrate Kubernetes with Minikube and KIND is a great
+starting point, I wanted to start learning how to provision and administrate a
+cluster, in particular a "bare-metal" cluster.
 
 To make things easy, I have used my K3s role to configure this as a Rancher
 K3s cluster.
