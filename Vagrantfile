@@ -113,7 +113,7 @@ Vagrant.configure("2") do |config|
                         k3s_use_docker: false,
                         k3s_no_servicelb: true,
                         k3s_flannel_interface: "eth1",
-                        k3s_release_version: "v1.17.4+k3s1",
+                        k3s_release_version: "v1.17.5+k3s1",
                         # k3s_control_node: true,
                         # k3s_dqlite_datastore: true,
                         # k3s_use_experimental: true,
