@@ -109,6 +109,7 @@ Vagrant.configure("2") do |config|
                     a.limit = "all"
                     a.extra_vars = {
                         k3s_control_workers: true,
+                        k3s_become_for_all: true,
                         kube_prefix: "kube-",
                         k3s_use_docker: false,
                         k3s_no_servicelb: true,
