@@ -107,21 +107,6 @@ Vagrant.configure("2") do |config|
             if node_id == N
                 n.vm.provision "ansible" do |a|
                     a.limit = "all"
-                    a.extra_vars = {
-                        k3s_control_workers: true,
-                        k3s_become_for_all: true,
-                        kube_prefix: "kube-",
-                        k3s_use_docker: false,
-                        k3s_no_servicelb: true,
-                        k3s_flannel_interface: "eth1",
-                        k3s_release_version: "v1.17.5+k3s1",
-                        # k3s_control_node: true,
-                        # k3s_dqlite_datastore: true,
-                        # k3s_use_experimental: true,
-                        k3s_kubelet_args: [
-                            { 'volume-plugin-dir': '/etc/kubernetes/kubelet-plugins/volume/exec' }
-                        ]
-                    }
                     a.playbook = "playbooks/kube-bootstrap.yml"
                 end
             end
