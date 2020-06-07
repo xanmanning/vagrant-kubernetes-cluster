@@ -1,0 +1,181 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rocket-chat-db-view
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: rocket-chat-db-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: ServiceAccount
+    name: rocket-chat-db-view
+    namespace: default
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rocket-chat-db
+  labels:
+    app: rocket-chat-db
+spec:
+  serviceName: rocket-chat-db
+  replicas: 3
+  selector:
+    matchLabels:
+      app: rocket-chat-db
+  template:
+    metadata:
+      labels:
+        app: rocket-chat-db
+    spec:
+      serviceAccountName: rocket-chat-db-view
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+      containers:
+        - name: rocket-chat-db
+          image: mongo:4.0
+          env:
+            - name: MONGO_INITDB_DATABASE
+              value: rocket-chat
+          command:
+            - mongod
+            - "--replSet"
+            - rs0
+            - "--smallfiles"
+            - "--noprealloc"
+            - "--bind_ip_all"
+          resources:
+            limits: { memory: "1Gi", cpu: "500m" }
+          ports:
+            - containerPort: 27017
+          volumeMounts:
+            - name: rocket-chat-db-data-pvc
+              mountPath: /data/db
+          readinessProbe:
+            exec:
+              command:
+              - mongo
+              - --eval
+              - "db.adminCommand('ping')"
+            timeoutSeconds: 5
+        - name: mongo-sidecar
+          image: cvallance/mongo-k8s-sidecar
+          env:
+            - name: MONGO_SIDECAR_POD_LABELS
+              value: "app=rocket-chat-db"
+  volumeClaimTemplates:
+  - metadata:
+      name: rocket-chat-db-data-pvc
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      storageClassName: "openebs-jiva-default"
+      resources:
+        requests:
+          storage: 2Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rocket-chat
+  labels:
+    app: rocket-chat
+spec:
+  serviceName: rocket-chat
+  replicas: 3
+  selector:
+    matchLabels:
+      app: rocket-chat
+  template:
+    metadata:
+      labels:
+        app: rocket-chat
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+      containers:
+        - name: rocket-chat
+          image: rocket.chat:3.3
+          env:
+            - name: MONGO_URL
+              value: mongodb://rocket-chat-db-0.rocket-chat-db,rocket-chat-db-1.rocket-chat-db,rocket-chat-db-2.rocket-chat-db:27017/rocket-chat?replicaSet=rs0
+            - name: MONGO_OPLOG_URL
+              value: mongodb://rocket-chat-db-0.rocket-chat-db,rocket-chat-db-1.rocket-chat-db,rocket-chat-db-2.rocket-chat-db:27017/local?replicaSet=rs0
+            - name: ROOT_URL
+              value: http://rocket-chat.kubed
+            - name: PORT
+              value: "3000"
+          resources:
+            requests: { memory: "500Mi", cpu: "200m" }
+            limits: { memory: "1Gi", cpu: "400m" }
+          ports:
+            - containerPort: 3000
+          volumeMounts:
+          - name: rocket-chat-uploads-pvc
+            mountPath: /app/uploads
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 10
+            timeoutSeconds: 5
+            periodSeconds: 15
+  volumeClaimTemplates:
+  - metadata:
+      name: rocket-chat-uploads-pvc
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      storageClassName: "openebs-jiva-default"
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rocket-chat-svc
+spec:
+  type: LoadBalancer
+  ports:
+    - protocol: TCP
+      port: 3000
+      targetPort: 3000
+  selector:
+    app: rocket-chat
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rocket-chat-db
+spec:
+  selector:
+    app: rocket-chat-db
+  # clusterIP: None
+  ports:
+    - port: 27017
+      targetPort: 27017
+---
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: rocket-chat-ingress
+  annotations:
+    kubernetes.io/ingress.class: "traefik"
+spec:
+  rules:
+  - host: rocket-chat.kubed
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: rocket-chat-svc
+          servicePort: 3000
