@@ -4,7 +4,7 @@ PREFIX = "kube-"
 # OS Image
 # BOX = "centos/7"
 # BOX = "ubuntu/bionic64"
-BOX = "bento/opensuse-leap-15.1"
+BOX = "bento/opensuse-leap-15.2"
 
 # Size of nodes
 CPU = 2
