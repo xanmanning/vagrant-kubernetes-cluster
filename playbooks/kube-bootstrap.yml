@@ -4,6 +4,7 @@
   become: true
   hosts: all
   vars:
+    ansible_python_interpreter: /usr/bin/python3
     k3s_control_workers: true
     k3s_become_for_all: true
     kube_prefix: "kube-"
