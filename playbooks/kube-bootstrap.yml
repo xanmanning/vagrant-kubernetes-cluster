@@ -5,20 +5,39 @@
   hosts: all
   vars:
     ansible_python_interpreter: /usr/bin/python3
-    k3s_control_workers: true
-    k3s_become_for_all: true
     kube_prefix: "kube-"
-    k3s_use_docker: false
-    k3s_no_servicelb: true
-    k3s_flannel_interface: "eth1"
-    k3s_release_version: "v1.18"
-    k3s_kubelet_args:
-      - volume-plugin-dir: '/etc/kubernetes/kubelet-plugins/volume/exec'
     raid_level: 10
     raid_device: /dev/md127
     block_devices: []
     filesystem_type: ext4
-    ansible_interface: "ansible_{{ k3s_flannel_interface }}"
+    k3s_become_for_all: true
+    k3s_release_version: v1.19
+    k3s_install_hard_links: true
+    k3s_etcd_datastore: true
+    k3s_use_experimental: true
+    interface_name: enp0s8
+    ansible_interface: "ansible_{{ interface_name }}"
+    k3s_server:
+      disable:
+        - servicelb
+        - local-storage
+      write-kubeconfig-mode: 0664
+      advertise-address: "{{ hostvars[inventory_hostname][ansible_interface].ipv4.address }}"
+      bind-address: 0.0.0.0
+    k3s_agent:
+      flannel-iface: "{{ interface_name }}"
+      node-ip: "{{ hostvars[inventory_hostname][ansible_interface].ipv4.address }}"
+      node-external-ip: "{{ hostvars[inventory_hostname][ansible_interface].ipv4.address }}"
+      node-name: "{{ inventory_hostname }}"
+      node-label:
+        - "NodeID={{ inventory_hostname }}"
+      kubelet-arg:
+        - "volume-plugin-dir=/var/lib/rancher/k3s/agent/kubelet/plugins_registry"
+    k3s_server_manifests_templates:
+      - "{{ playbook_dir }}/../templates/00-metallb.yaml"
+      - "{{ playbook_dir }}/../templates/05-metallb-arp-config.yaml"
+      - "{{ playbook_dir }}/../templates/10-longhorn-operator.yaml"
+
   pre_tasks:
     - name: Ensure chronyd is installed
       package:
@@ -37,12 +56,15 @@
           - mdadm
           - lvm2
           - open-iscsi
-          - libiscsi-utils
+          - libiscsi7
         state: present
+
+    - name: Ensure all nodes are set to be control nodes
+      set_fact:
+        k3s_control_node: true
 
     - name: Ensure the first node is configured as the Primary master
       set_fact:
-        # k3s_control_node: "{{ inventory_hostname }}"
         k3s_primary_control_node: "{{ inventory_hostname }}"
       when: inventory_hostname == play_hosts[0]
 
@@ -50,8 +72,6 @@
       set_fact:
         k3s_control_node_address: "{{ hostvars[item][ansible_interface].ipv4.address }}"
       loop: "{{ play_hosts }}"
-      # when: hostvars[item].k3s_control_node is defined
-      #       and hostvars[item].k3s_control_node
       when: hostvars[item].k3s_primary_control_node is defined
             and hostvars[item].k3s_primary_control_node
 
@@ -68,6 +88,7 @@
           loop: "{{ lookup('dict', ansible_devices) }}"
           when: item.value.partitions | length < 1
                 and item.key.find('loop') == -1
+                and item.value.sectors | int > 204800
 
         - name: Ensure a string of block devices exists
           set_fact:
@@ -115,13 +136,13 @@
 
     - name: Ensure mountpoint exists
       file:
-        path: /var/openebs
+        path: /var/lib/longhorn
         state: directory
 
     - name: Ensure volume is mounted
       mount:
         src: /dev/mapper/vg_pvstore-lv_pvdata
-        path: /var/openebs
+        path: /var/lib/longhorn
         fstype: "{{ filesystem_type }}"
         state: mounted
 
@@ -131,45 +152,10 @@
         state: started
         enabled: true
 
-    - name: Wait for VM resources to settle
-      pause:
-        seconds: 20
-
   roles:
     - xanmanning.k3s
 
   tasks:
-    - name: Ensure deployment directory exists
-      file:
-        path: /etc/kubernetes/deployment
-        state: directory
-
-    - name: Ensure yaml files are present in deployment directory
-      template:
-        dest: "/etc/kubernetes/deployment/{{ item }}"
-        src: "{{ playbook_dir }}/../templates/{{ item }}.j2"
-      when: inventory_hostname == play_hosts[0]
-      loop:
-        # MetalLB
-        - 00-metallb.yaml
-        - 05-metallb-arp-config.yaml
-        # OpenEBS
-        - 10-openebs-operator.yaml
-
-    - name: Ensure yaml files have been deployed to k3s
-      shell: >
-        set -o pipefail && \
-          /usr/local/bin/kubectl create \
-            -f /etc/kubernetes/deployment/{{ item }} | tee -a /tmp/deploy-{{ item }}
-      args:
-        creates: "/tmp/deploy-{{ item }}"
-      when: inventory_hostname == play_hosts[0]
-      loop:
-        # MetalLB
-        - 00-metallb.yaml
-        - 05-metallb-arp-config.yaml
-        # OpenEBS
-        - 10-openebs-operator.yaml
 
     - name: Download a copy of the admin config
       fetch:
@@ -180,11 +166,40 @@
 
     - name: Ensure config contains the control plane IP
       delegate_to: localhost
+      run_once: true
       become: false
       lineinfile:
         path: ../config
         line: "    server: https://{{ k3s_control_node_address }}:6443"
         regexp: "^\\s+server: https:"
+
+    - name: Wait for storage and networking to be ready
+      delegate_to: "{{ play_hosts[0] }}"
+      run_once: true
+      shell: >
+        set -o pipefail &&
+          /usr/local/bin/kubectl get pods -o wide --all-namespaces | grep -vE "Running|Completed"
+      args:
+        executable: /bin/bash
+      register: check_pods_ready
+      until: check_pods_ready.stdout_lines | length < 2
+      retries: 100
+      delay: 10
+      failed_when: check_pods_ready.rc > 0
+      changed_when: false
+
+      # This can be done AFTER all pods are ready, no need to wait.
+    - name: Ensure traefik ingress controller is scaled up to the number of nodes
+      delegate_to: "{{ play_hosts[0] }}"
+      run_once: true
+      shell: >
+        set -o pipefail &&
+          /usr/local/bin/kubectl scale --replicas={{ play_hosts | length }} -n kube-system deployment/traefik
+      args:
+        executable: /bin/bash
+      register: ensure_traefik_scaled
+      failed_when: ensure_traefik_scaled.rc > 0
+      changed_when: '"scaled" in ensure_traefik_scaled.stdout'
 
     - name: Closing message
       delegate_to: localhost

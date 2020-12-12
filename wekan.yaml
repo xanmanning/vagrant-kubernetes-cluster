@@ -76,7 +76,6 @@ spec:
     spec:
       accessModes:
         - ReadWriteOnce
-      storageClassName: "openebs-jiva-default"
       resources:
         requests:
           storage: 2Gi
@@ -132,7 +131,6 @@ spec:
     spec:
       accessModes:
         - ReadWriteOnce
-      storageClassName: "openebs-jiva-default"
       resources:
         requests:
           storage: 1Gi

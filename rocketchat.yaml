@@ -76,7 +76,6 @@ spec:
     spec:
       accessModes:
         - ReadWriteOnce
-      storageClassName: "openebs-jiva-default"
       resources:
         requests:
           storage: 2Gi
@@ -103,7 +102,7 @@ spec:
         runAsUser: 1000
       containers:
         - name: rocket-chat
-          image: rocket.chat:3.3
+          image: rocket.chat:3.9
           env:
             - name: MONGO_URL
               value: mongodb://rocket-chat-db-0.rocket-chat-db,rocket-chat-db-1.rocket-chat-db,rocket-chat-db-2.rocket-chat-db:27017/rocket-chat?replicaSet=rs0
@@ -134,7 +133,6 @@ spec:
     spec:
       accessModes:
         - ReadWriteOnce
-      storageClassName: "openebs-jiva-default"
       resources:
         requests:
           storage: 1Gi

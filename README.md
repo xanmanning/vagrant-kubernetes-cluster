@@ -1,4 +1,4 @@
-# Kubernetes Cluster on OpenSUSE built with Vagrant and Ansible
+# Kubernetes Cluster on Ubuntu built with Vagrant and Ansible
 ## Code to Kubernetes in 15 minutes.
 
 ### Introduction
@@ -26,23 +26,23 @@ To try and get the "bare-metal" experience, Vagrant and Ansible deploys the
 following:
 
   - 3 worker nodes:
-    - OpenSUSE
+    - Ubuntu (Focal)
     - 2 vCPU
     - 2048 MiB Memory
     - RAID 10 for local storage.
-  - 1 control node (one of the workers)
+  - 3 control node (HA using Embedded Etcd)
   - Rancher k3s
   - Flannel (CNI)
   - MetalLB (Load Balancer)
-  - OpenEBS (Storage)
+  - Longhorn (Storage)
 
 ### Architecture
 
-The cluster is composed of Kubernetes nodes (1 control plane worker, 2 workers).
+The cluster is composed of Kubernetes nodes (3 control plane workers).
 
 This Kubernetes cluster is Rancher K3s running on OpenSUSE with Flannel as the
 Container Network Interface (CNI). Storage is local but can be replicated using
-OpenEBS's Jiva storage.
+Longhorn storage.
 
 ![K3s Diagram](images/cluster-diagram.png)
 
@@ -64,7 +64,7 @@ To run the cluster, simply do the following:
 ### Deploying a test app
 
 We are going to be deploying Wekan, a Trello-like Kanban board. This will be
-composed of the 2 StatefulSets (app tier and database tier) backed by OpenEBS
+composed of the 2 StatefulSets (app tier and database tier) backed by Longhorn
 replicated storage.
 
 ![wekan app](images/wekan-diagram.png)
@@ -91,32 +91,51 @@ To further debug and diagnose cluster problems, use 'kubectl cluster-info dump'.
 #### 1. Check the cluster
 
 We need to ensure that all the pods are started for Kubernetes, Flannel,
-Metallb and OpenEBS are started.
+Metallb and Longhorn are started.
 
 Run: `kubectl get pods -o wide --all-namespaces`
 
 Each pod should appear as Running or Completed
 
 ```text
-NAMESPACE        NAME                                           READY   STATUS      RESTARTS   AGE     IP          NODE     NOMINATED NODE   READINESS GATES
-kube-system      metrics-server-6d684c7b5-jp5kx                 1/1     Running     0          4m14s   10.42.0.4   kube-0   <none>           <none>
-kube-system      local-path-provisioner-58fb86bdfd-66t2d        1/1     Running     0          4m14s   10.42.0.2   kube-0   <none>           <none>
-kube-system      helm-install-traefik-wvgtt                     0/1     Completed   0          4m15s   10.42.0.5   kube-0   <none>           <none>
-kube-system      coredns-6c6bb68b64-dv2cn                       1/1     Running     0          4m14s   10.42.0.3   kube-0   <none>           <none>
-kube-system      traefik-7b8b884c8-2vxhh                        1/1     Running     0          3m37s   10.42.0.6   kube-0   <none>           <none>
-metallb-system   controller-65895b47d4-sn72f                    1/1     Running     0          2m45s   10.42.0.8   kube-0   <none>           <none>
-openebs          openebs-ndm-m2ztt                              1/1     Running     0          2m43s   10.10.9.2   kube-0   <none>           <none>
-openebs          openebs-snapshot-operator-857784956d-gjqq8     2/2     Running     0          2m43s   10.42.2.3   kube-2   <none>           <none>
-metallb-system   speaker-z2q5h                                  1/1     Running     0          2m45s   10.10.9.2   kube-0   <none>           <none>
-metallb-system   speaker-5ms9d                                  1/1     Running     0          2m44s   10.10.9.3   kube-1   <none>           <none>
-metallb-system   speaker-kfzj5                                  1/1     Running     0          2m44s   10.10.9.4   kube-2   <none>           <none>
-openebs          openebs-localpv-provisioner-6f979cfcb9-6htlv   1/1     Running     0          2m43s   10.42.1.4   kube-1   <none>           <none>
-openebs          openebs-provisioner-594c8c7974-bjxsd           1/1     Running     0          2m43s   10.42.2.2   kube-2   <none>           <none>
-openebs          openebs-ndm-fvgsn                              1/1     Running     0          2m43s   10.10.9.4   kube-2   <none>           <none>
-openebs          openebs-ndm-qvj7h                              1/1     Running     0          2m43s   10.10.9.3   kube-1   <none>           <none>
-openebs          openebs-admission-server-7849ff844d-sxldj      1/1     Running     0          2m43s   10.42.1.5   kube-1   <none>           <none>
-openebs          maya-apiserver-697dcb9ff4-9n9mm                0/1     Running     2          2m43s   10.42.1.2   kube-1   <none>           <none>
-openebs          openebs-ndm-operator-7bcd4c77ff-xg7lg          1/1     Running     1          2m43s   10.42.1.3   kube-1   <none>           <none>
+NAMESPACE         NAME                                        READY   STATUS      RESTARTS   AGE   IP           NODE     NOMINATED NODE   READINESS GATES
+kube-system       coredns-66c464876b-dhzbc                    1/1     Running     0          76m   10.42.0.8    kube-0   <none>           <none>
+kube-system       helm-install-traefik-4jz8f                  0/1     Completed   0          76m   10.42.0.4    kube-0   <none>           <none>
+kube-system       metrics-server-7b4f8b595-bkj7b              1/1     Running     0          76m   10.42.0.7    kube-0   <none>           <none>
+kube-system       traefik-5dd496474-6lpr4                     1/1     Running     0          70m   10.42.0.15   kube-0   <none>           <none>
+kube-system       traefik-5dd496474-kpmxb                     1/1     Running     0          74m   10.42.1.3    kube-2   <none>           <none>
+kube-system       traefik-5dd496474-wtqlw                     1/1     Running     0          70m   10.42.2.11   kube-1   <none>           <none>
+longhorn-system   csi-attacher-7cb499df6-7w5kz                1/1     Running     0          71m   10.42.2.8    kube-1   <none>           <none>
+longhorn-system   csi-attacher-7cb499df6-dl4lr                1/1     Running     0          71m   10.42.1.7    kube-2   <none>           <none>
+longhorn-system   csi-attacher-7cb499df6-z4blh                1/1     Running     0          71m   10.42.0.12   kube-0   <none>           <none>
+longhorn-system   csi-provisioner-67846b4b55-2hd49            1/1     Running     0          71m   10.42.2.7    kube-1   <none>           <none>
+longhorn-system   csi-provisioner-67846b4b55-c8vdr            1/1     Running     0          71m   10.42.2.6    kube-1   <none>           <none>
+longhorn-system   csi-provisioner-67846b4b55-qjgcn            1/1     Running     0          71m   10.42.1.8    kube-2   <none>           <none>
+longhorn-system   csi-resizer-5cb8df7db9-k2wdz                1/1     Running     0          71m   10.42.0.13   kube-0   <none>           <none>
+longhorn-system   csi-resizer-5cb8df7db9-pd6fj                1/1     Running     0          71m   10.42.1.9    kube-2   <none>           <none>
+longhorn-system   csi-resizer-5cb8df7db9-zjmqb                1/1     Running     0          71m   10.42.2.9    kube-1   <none>           <none>
+longhorn-system   engine-image-ei-ee18f965-2l8x2              1/1     Running     0          74m   10.42.1.4    kube-2   <none>           <none>
+longhorn-system   engine-image-ei-ee18f965-6c2c6              1/1     Running     0          74m   10.42.2.3    kube-1   <none>           <none>
+longhorn-system   engine-image-ei-ee18f965-gq9dp              1/1     Running     0          74m   10.42.0.9    kube-0   <none>           <none>
+longhorn-system   instance-manager-e-002f78c4                 1/1     Running     0          73m   10.42.0.10   kube-0   <none>           <none>
+longhorn-system   instance-manager-e-53692e3c                 1/1     Running     0          73m   10.42.2.5    kube-1   <none>           <none>
+longhorn-system   instance-manager-e-553a6cee                 1/1     Running     0          74m   10.42.1.5    kube-2   <none>           <none>
+longhorn-system   instance-manager-r-1b6ea19b                 1/1     Running     0          74m   10.42.1.6    kube-2   <none>           <none>
+longhorn-system   instance-manager-r-22f655c1                 1/1     Running     0          73m   10.42.0.11   kube-0   <none>           <none>
+longhorn-system   instance-manager-r-61b2504d                 1/1     Running     0          73m   10.42.2.4    kube-1   <none>           <none>
+longhorn-system   longhorn-csi-plugin-94nwj                   2/2     Running     0          71m   10.42.0.14   kube-0   <none>           <none>
+longhorn-system   longhorn-csi-plugin-bv7jl                   2/2     Running     0          71m   10.42.1.10   kube-2   <none>           <none>
+longhorn-system   longhorn-csi-plugin-pcv6b                   2/2     Running     0          71m   10.42.2.10   kube-1   <none>           <none>
+longhorn-system   longhorn-driver-deployer-5b8f57cfcb-mqmfb   1/1     Running     0          76m   10.42.0.3    kube-0   <none>           <none>
+longhorn-system   longhorn-manager-ddjdv                      1/1     Running     0          76m   10.42.0.6    kube-0   <none>           <none>
+longhorn-system   longhorn-manager-js647                      1/1     Running     0          75m   10.42.2.2    kube-1   <none>           <none>
+longhorn-system   longhorn-manager-zfnpb                      1/1     Running     1          75m   10.42.1.2    kube-2   <none>           <none>
+longhorn-system   longhorn-ui-68b99bd456-7dsp6                1/1     Running     0          76m   10.42.0.2    kube-0   <none>           <none>
+metallb-system    controller-675d6c9976-vdk77                 1/1     Running     0          76m   10.42.0.5    kube-0   <none>           <none>
+metallb-system    speaker-6j6pt                               1/1     Running     0          75m   10.10.9.4    kube-2   <none>           <none>
+metallb-system    speaker-pf4t8                               1/1     Running     0          76m   10.10.9.2    kube-0   <none>           <none>
+metallb-system    speaker-x8bl6                               1/1     Running     0          75m   10.10.9.3    kube-1   <none>           <none>
+
 ```
 
 #### 2. Prepare your `/etc/hosts` file
@@ -151,10 +170,6 @@ The above is happening in the default namespace, to change namespaces you
 will need to modify the service account in `wekan.yaml`.
 
 To watch the deployment, run: `kubectl get pods -w -o wide`
-
-**Note**: A number of Persistent Volume Claims (PVCs) will crash and relaunch,
-I'm fairly new to OpenEBS but this seems to be OK as the volumes will
-eventually sort themselves out.
 
 #### 4. Test the application
 

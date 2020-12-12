@@ -2,9 +2,7 @@
 PREFIX = "kube-"
 
 # OS Image
-# BOX = "centos/7"
-# BOX = "ubuntu/bionic64"
-BOX = "bento/opensuse-leap-15.2"
+BOX = "ubuntu/focal64"
 
 # Size of nodes
 CPU = 2
@@ -17,35 +15,6 @@ N = 3
 # /24 networks
 KUBE_NETWORK="10.10.9"
 STORAGE_NETWORK="10.10.11"
-
-# Provisioning Scripts
-$provisioningScript = <<-SCRIPT
-if [[ ! -f /VAGRANT_PROVISION ]] ; then
-  echo "Provisioning VM, this may take a while!" | tee -a /VAGRANT_PROVISION
-  echo "" | tee -a /VAGRANT_PROVISION
-
-  echo "Installing extra virtualbox guest packages ... " | tee -a /VAGRANT_PROVISION
-  sudo zypper install -y virtualbox-guest-tools >> /VAGRANT_PROVISION && echo "Done"
-
-  echo "Installing ansible dependencies ... " | tee -a /VAGRANT_PROVISION
-  sudo zypper install -y python-urllib3 python-xml >> /VAGRANT_PROVISION && echo "Done"
-
-  echo "Done"
-else
-  echo "Already Provisioned"
-fi
-SCRIPT
-
-## Shared Drive Script
-
-$shareScript = <<-SCRIPT
-IS_VAGRANT_MOUNTED="$(mount | grep vagrant || true)"
-sudo test -d /vagrant || mkdir /vagrant
-grep "vboxsf" /etc/fstab || echo "vagrant /vagrant vboxsf defaults 0 0" | sudo tee -a /etc/fstab
-if [[ "${IS_VAGRANT_MOUNTED}" == "" ]] ;  then
-  sudo mount -t vboxsf -o uid=$(id -u vagrant),gid=$(id -g vagrant) vagrant /vagrant
-fi
-SCRIPT
 
 # Using Vagrant version 2.
 Vagrant.configure("2") do |config|
@@ -100,8 +69,6 @@ Vagrant.configure("2") do |config|
                 vb.customize ['storageattach', :id, '--storagectl', "#{PREFIX}#{nid}", '--port', 6, '--device', 0, '--type', 'hdd', '--medium', file_to_disk_5]
             end
 
-            n.vm.provision "shell", inline: $provisioningScript
-            n.vm.provision "shell", inline: $shareScript, run: "always"
             n.vm.provision "shell", path: ".provision/scripts/fix_fstab_uuid.sh"
 
             if node_id == N
