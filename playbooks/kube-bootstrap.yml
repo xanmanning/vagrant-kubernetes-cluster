@@ -188,7 +188,7 @@
       failed_when: check_pods_ready.rc > 0
       changed_when: false
 
-      # This can be done AFTER all pods are ready, no need to wait.
+    # This can be done AFTER all pods are ready, no need to wait.
     - name: Ensure traefik ingress controller is scaled up to the number of nodes
       delegate_to: "{{ play_hosts[0] }}"
       run_once: true
