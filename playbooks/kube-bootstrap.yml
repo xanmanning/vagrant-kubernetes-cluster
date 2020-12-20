@@ -57,6 +57,7 @@
           - lvm2
           - open-iscsi
           - libiscsi7
+          - nfs-common
         state: present
 
     - name: Ensure all nodes are set to be control nodes
