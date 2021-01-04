@@ -21,9 +21,12 @@
       disable:
         - servicelb
         - local-storage
-      write-kubeconfig-mode: 0664
+      write-kubeconfig-mode: 644
       advertise-address: "{{ hostvars[inventory_hostname][ansible_interface].ipv4.address }}"
       bind-address: 0.0.0.0
+      kube-controller-manager-arg:
+        - "pod-eviction-timeout=2m"
+        - "node-monitor-grace-period=30s"
     k3s_agent:
       flannel-iface: "{{ interface_name }}"
       node-ip: "{{ hostvars[inventory_hostname][ansible_interface].ipv4.address }}"
