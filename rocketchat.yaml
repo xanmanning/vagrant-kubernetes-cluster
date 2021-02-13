@@ -81,13 +81,12 @@ spec:
           storage: 2Gi
 ---
 apiVersion: apps/v1
-kind: StatefulSet
+kind: Deployment
 metadata:
   name: rocket-chat
   labels:
     app: rocket-chat
 spec:
-  serviceName: rocket-chat
   replicas: 3
   selector:
     matchLabels:
@@ -97,9 +96,16 @@ spec:
       labels:
         app: rocket-chat
     spec:
-      securityContext:
-        fsGroup: 1000
-        runAsUser: 1000
+      initContainers:
+        - name: init-volume
+          image: busybox
+          command:
+            - 'sh'
+            - '-c'
+            - 'chown -R 999:999 /uploads' 
+          volumeMounts:
+            - name: rocket-chat-uploads
+              mountPath: /uploads
       containers:
         - name: rocket-chat
           image: rocket.chat:3.9
@@ -118,8 +124,8 @@ spec:
           ports:
             - containerPort: 3000
           volumeMounts:
-          - name: rocket-chat-uploads-pvc
-            mountPath: /app/uploads
+            - name: rocket-chat-uploads
+              mountPath: /app/uploads
           readinessProbe:
             httpGet:
               path: /
@@ -127,15 +133,21 @@ spec:
             initialDelaySeconds: 10
             timeoutSeconds: 5
             periodSeconds: 15
-  volumeClaimTemplates:
-  - metadata:
-      name: rocket-chat-uploads-pvc
-    spec:
-      accessModes:
-        - ReadWriteOnce
-      resources:
-        requests:
-          storage: 1Gi
+      volumes:
+        - name: rocket-chat-uploads
+          persistentVolumeClaim:
+            claimName: rocket-chat-uploads-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rocket-chat-uploads-pvc
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
 ---
 apiVersion: v1
 kind: Service

@@ -41,7 +41,6 @@ Vagrant.configure("2") do |config|
                 vb.name = "#{PREFIX}#{nid}"
                 vb.cpus = CPU
                 vb.memory = MEMORY
-                vb.customize ['sharedfolder', 'add', :id, '--name', 'vagrant', '--hostpath', PROJECT_ROOT]
                 unless File.exist?(file_to_disk_0)
                     vb.customize ['createhd', '--filename', file_to_disk_0, '--size', 8 * 1024]
                     vb.customize ['storagectl', :id, '--name', "#{PREFIX}#{nid}", '--add', 'sas', '--controller', 'LSILogicSAS']
